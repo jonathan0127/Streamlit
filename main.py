@@ -298,48 +298,40 @@ def create_risk_map(df_zones, df_coords, df_rules, predictions, selected_datetim
         # ========== 熱區圖模式 ==========
         # 準備熱力圖資料: [lat, lon, weight]
         heat_data = []
-        
+
         for zone_id, pred_data in predictions.items():
             if zone_id not in zone_centers:
                 continue
-            
+
             center = zone_centers[zone_id]
-            risk_score = pred_data['risk_score']
-            
-            # 根據風險分數生成多個點來增強熱力效果
-            # 高風險區域生成更多密集點
-            num_points = max(3, int(risk_score * 20))  # 風險越高，點越多
-            
-            # 在區域中心周圍生成散點
-            for _ in range(num_points):
-                # 添加隨機偏移以模擬區域範圍
-                lat_offset = np.random.normal(0, 0.0006)  # 約 60 公尺，更集中
-                lon_offset = np.random.normal(0, 0.0006)
-                
-                heat_data.append([
-                    center['lat'] + lat_offset,
-                    center['lon'] + lon_offset,
-                    risk_score  # 權重
-                ])
+            raw_score = float(pred_data['risk_score'])
+
+            # 將風險分數限制在 (0,1) 範圍內，並做一次非線性壓縮
+            risk_score = float(np.clip(raw_score, 0.01, 0.99))
+            risk_score = risk_score ** 0.7
+
+            # 每個區只加一個點，由 HeatMap 的 radius/blur 決定範圍
+            heat_data.append([
+                center['lat'],
+                center['lon'],
+                risk_score
+            ])
         
-        # 添加熱力圖層 (調整顏色梯度使其更清晰)
+        # 添加熱力圖層：較大的 radius / blur 讓每個區呈現一整塊範圍
         HeatMap(
             heat_data,
             min_opacity=0.2,
-            max_opacity=0.7,
-            radius=30,  # 熱點半徑
-            blur=25,    # 模糊程度
+            max_opacity=0.9,
+            radius=35,  # 區域範圍大小
+            blur=30,    # 範圍邊界柔和程度
+            max_val=1.0,
             gradient={
-                0.0: '#FFFFFF',  # 極低風險 - 白色(幾乎透明)
-                0.1: '#90EE90',  # 極低風險 - 淺綠
-                0.2: '#FFFF99',  # 低風險 - 淺黃
-                0.3: '#FFD700',  # 低-中風險 - 金色
-                0.4: '#FFA500',  # 中風險 - 橙色
-                0.5: '#FF8C00',  # 中-高風險 - 深橙
-                0.6: '#FF6347',  # 高風險 - 番茄紅
-                0.7: '#FF4444',  # 高風險 - 紅色
-                0.85: '#DC143C', # 極高風險 - 深紅
-                1.0: '#8B0000'   # 最高風險 - 暗紅
+                0.0: '#FFFFFF',
+                0.2: '#90EE90',
+                0.4: '#FFFF99',
+                0.6: '#FFA500',
+                0.8: '#FF4444',
+                1.0: '#8B0000'
             }
         ).add_to(m)
         
